@@ -4,36 +4,7 @@ let filteredConversations = [];
 let orgId = null;
 let currentSort = 'updated_desc';
 
-// Model name mappings
-const MODEL_DISPLAY_NAMES = {
-  'claude-3-sonnet-20240229': 'Claude 3 Sonnet',
-  'claude-3-opus-20240229': 'Claude 3 Opus',
-  'claude-3-haiku-20240307': 'Claude 3 Haiku',
-  'claude-3-5-sonnet-20240620': 'Claude 3.5 Sonnet',
-  'claude-3-5-haiku-20241022': 'Claude 3.5 Haiku',
-  'claude-3-5-sonnet-20241022': 'Claude 3.6 Sonnet',
-  'claude-3-7-sonnet-20250219': 'Claude 3.7 Sonnet',
-  'claude-sonnet-4-20250514': 'Claude Sonnet 4',
-  'claude-opus-4-20250514': 'Claude Opus 4',
-  'claude-opus-4-1-20250805': 'Claude Opus 4.1',
-  'claude-sonnet-4-5-20250929': 'Claude Sonnet 4.5',
-  'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
-  'claude-opus-4-5-20251101': 'Claude Opus 4.5',
-  'claude-sonnet-4-6': 'Claude Sonnet 4.6',
-  'claude-opus-4-6': 'Claude Opus 4.6'
-};
 
-// Default model timeline for null models
-// Each entry represents when that model became the default
-const DEFAULT_MODEL_TIMELINE = [
-  { date: new Date('2024-01-01'), model: 'claude-3-sonnet-20240229' }, // Before June 20, 2024
-  { date: new Date('2024-06-20'), model: 'claude-3-5-sonnet-20240620' }, // Starting June 20, 2024
-  { date: new Date('2024-10-22'), model: 'claude-3-5-sonnet-20241022' }, // Starting October 22, 2024
-  { date: new Date('2025-02-24'), model: 'claude-3-7-sonnet-20250219' }, // Starting February 24, 2025
-  { date: new Date('2025-05-22'), model: 'claude-sonnet-4-20250514' }, // Starting May 22, 2025
-  { date: new Date('2025-09-29'), model: 'claude-sonnet-4-5-20250929' }, // Starting September 29, 2025
-  { date: new Date('2026-02-17'), model: 'claude-sonnet-4-6' } // Starting February 17, 2026
-];
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
@@ -42,26 +13,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 });
 
-// Infer model for conversations with null model based on date
-function inferModel(conversation) {
-  if (conversation.model) {
-    return conversation.model;
-  }
-  
-  // Use created_at date to determine which default model was active
-  const conversationDate = new Date(conversation.created_at);
-  
-  // Find the appropriate model based on the conversation date
-  // Start from the end and work backwards to find the right period
-  for (let i = DEFAULT_MODEL_TIMELINE.length - 1; i >= 0; i--) {
-    if (conversationDate >= DEFAULT_MODEL_TIMELINE[i].date) {
-      return DEFAULT_MODEL_TIMELINE[i].model;
-    }
-  }
-  
-  // If date is before all known dates, use the first model
-  return DEFAULT_MODEL_TIMELINE[0].model;
-}
 
 // Load organization ID from storage
 async function loadOrgId() {
@@ -127,10 +78,6 @@ function populateModelFilter(models) {
   });
 }
 
-// Format model name for display
-function formatModelName(model) {
-  return MODEL_DISPLAY_NAMES[model] || model;
-}
 
 // Get model badge class
 function getModelBadgeClass(model) {
@@ -503,8 +450,21 @@ async function exportAllFiltered() {
   }
 }
 
-// Conversion functions are now imported from utils.js
-// Functions available: getCurrentBranch, convertToMarkdown, convertToText, downloadFile
+// Conversion functions (getCurrentBranch, convertToMarkdown, convertToText) and
+// model helpers (inferModel, formatModelName, MODEL_DISPLAY_NAMES) are provided by
+// utils.js, loaded before browse.js in browse.html. downloadFile is DOM-specific,
+// so it lives here (utils.js is kept DOM-free for reuse by the CLI).
+function downloadFile(content, filename, type = 'application/json') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // Show error message
 function showError(message) {
