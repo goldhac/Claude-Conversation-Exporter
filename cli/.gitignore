@@ -1,0 +1,4 @@
+node_modules/
+# Generated at pack time from ../utils.js (see prepack); not source.
+src/convert-core.js
+*.tgz

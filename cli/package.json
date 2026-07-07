@@ -1,0 +1,26 @@
+{
+  "name": "claude-export",
+  "version": "0.1.0",
+  "description": "Export your Claude.ai conversations from the command line, reading the Claude Desktop session on macOS (no browser required).",
+  "type": "commonjs",
+  "bin": {
+    "claudex": "bin/claudex.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/convert.test.js",
+    "prepack": "node -e \"require('fs').copyFileSync('../utils.js','src/convert-core.js')\""
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "jszip": "^3.10.1"
+  },
+  "license": "MIT"
+}

@@ -2,6 +2,17 @@
 
 A Chrome extension that allows you to export your Claude.ai conversations in various formats (JSON, Markdown, Plain Text) with support for bulk exports and conversation browsing.
 
+> **Use the native Claude Desktop app instead of a browser?** See [`cli/`](cli/) — a
+> command-line exporter for macOS (`claudex`) that reads the Desktop app's own
+> session (no browser needed) and exports at **full fidelity** (extended thinking,
+> tool calls, artifacts, attachments, and *all* branches). It shares this project's
+> conversion code. Quick start:
+>
+> ```bash
+> cd cli && npm install && npm link   # installs the `claudex` command
+> claudex export --all --zip
+> ```
+
 ## Features
 
 - 📥 **Export Individual Conversations** - Export any conversation directly from Claude.ai
