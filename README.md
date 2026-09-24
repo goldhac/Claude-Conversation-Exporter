@@ -13,6 +13,17 @@ A Chrome extension that allows you to export your Claude.ai conversations in var
 > claudex export --all --zip
 > ```
 
+> **Switching Claude accounts?** See [`skills/carry-over/`](skills/carry-over/) — a Claude Code
+> skill that brings your Claude Desktop **Code sessions** back in the new account (same titles,
+> same project folders, continue where you left off) and turns `claudex` output or the official
+> data export into an indexed Markdown archive. Install:
+>
+> ```bash
+> cp -R skills/carry-over ~/.claude/skills/
+> ```
+>
+> Then, in any Claude Code session: `/carry-over`.
+
 ## Features
 
 - 📥 **Export Individual Conversations** - Export any conversation directly from Claude.ai
