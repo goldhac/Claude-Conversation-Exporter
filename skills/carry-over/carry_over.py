@@ -8,6 +8,11 @@ not tied to an account, so copying the JSON into the new account's folder
 brings the session back — same title, same folder, fully resumable.
 
 Commands
+  run --target-session local_<id> [--apply]
+                           everything, in order, skipping what is already done:
+                           backup -> snapshot -> refresh chats (claudex) ->
+                           import chats (claudex output + any official export ZIP
+                           in ~/Downloads) -> restore sessions. Dry run unless --apply.
   snapshot                 write a manifest of every session to the Vault
   restore --target-session local_<id> [--apply]
                            copy sessions from the old account folder into the
@@ -19,14 +24,20 @@ Commands
                            into Markdown notes under Vault/Claude-Chats/.
                            Dry run unless --apply.
 """
-import argparse, datetime, glob, json, os, re, shutil, sys, zipfile
+import argparse, datetime, glob, json, os, re, shutil, subprocess, sys, time, zipfile
 
 HOME = os.path.expanduser('~')
 SESSIONS = os.path.join(HOME, 'Library/Application Support/Claude/claude-code-sessions')
 # Where chat notes and the session snapshot go. Override with CARRY_OVER_VAULT.
 VAULT = os.path.expanduser(os.environ.get('CARRY_OVER_VAULT', '~/Documents/Vault'))
 MIGRATION = os.path.join(VAULT, 'Claude-Migration')
-CHATS = os.path.join(VAULT, 'Claude-Chats')
+# Chats and backups hold private data, so they live outside ~/Documents (which is
+# often cloud-synced). Override with CARRY_OVER_ARCHIVE.
+ARCHIVE = os.path.expanduser(os.environ.get('CARRY_OVER_ARCHIVE', '~/ClaudeArchive'))
+CHATS = os.path.join(ARCHIVE, 'chats')
+RAW = os.path.join(ARCHIVE, 'chats-raw')
+BACKUPS = os.path.join(ARCHIVE, 'backups')
+STATE = os.path.join(ARCHIVE, 'state.json')
 
 # Fields that reference the old account's connectors, artifacts or remote state.
 # The new account rebuilds them on first open.
@@ -221,7 +232,8 @@ def cmd_import(a):
     for c in convs:
         day = (c.get('created_at') or '0000-00-00')[:10]
         rel = os.path.join(day[:7], '%s %s.md' % (day, slug(c.get('name'))))
-        if rel in written and written[rel] != c.get('uuid'):  # same title, same day
+        taken = written.get(rel) or note_uuid(os.path.join(CHATS, rel))
+        if taken and taken != c.get('uuid'):  # same title, same day, different chat
             rel = rel[:-3] + ' ' + (c.get('uuid') or '')[:8] + '.md'
         written[rel] = c.get('uuid')
         path = os.path.join(CHATS, rel)
@@ -240,7 +252,6 @@ def cmd_import(a):
                 body += ['## %s · %s' % (who, (m.get('created_at') or '')[:16].replace('T', ' ')), '', msg_text(m), '']
         with open(path, 'w') as f:
             f.write('\n'.join(body))
-        index.setdefault(day[:7], []).append((day, c.get('name') or 'Untitled', rel))
     for p in projects:
         pdir = os.path.join(CHATS, '_projects')
         os.makedirs(pdir, exist_ok=True)
@@ -251,23 +262,165 @@ def cmd_import(a):
             lines += ['## 📄 ' + (d.get('filename') or 'doc'), '', d.get('content') or '', '']
         with open(os.path.join(pdir, slug(p.get('name')) + '.md'), 'w') as f:
             f.write('\n'.join(lines))
-    src = 'claudex' if any(c.get('_rendered_md') is not None or 'conversations.json' not in str(a.source) for c in convs[:1]) and not projects else 'the official export'
-    idx = ['# Claude.ai chats', '', 'Imported %s from %s. %d chats, %d projects%s.' %
-           (datetime.date.today().isoformat(), src, len(convs), len(projects),
-            ' (see `_projects/`)' if projects else ''), '']
+    total = rebuild_index()
+    print('Wrote %d chats + %d projects to %s (index: INDEX.md, %d chats total)' % (
+        len(convs), len(projects), CHATS, total))
+
+
+def note_uuid(path):
+    try:
+        with open(path) as f:
+            for line in f.readlines()[:8]:
+                if line.startswith('uuid: '):
+                    return line[6:].strip()
+    except OSError:
+        pass
+    return None
+
+
+def rebuild_index():
+    """INDEX.md from every note on disk, so repeated imports accumulate."""
+    index = {}
+    for path in glob.glob(os.path.join(CHATS, '[0-9][0-9][0-9][0-9]-[0-9][0-9]', '*.md')):
+        rel = os.path.relpath(path, CHATS)
+        name = os.path.basename(path)[11:-3]
+        with open(path) as f:
+            for line in f.readlines()[:12]:
+                if line.startswith('# '):
+                    name = line[2:].strip()
+                    break
+        day = os.path.basename(path)[:10]
+        index.setdefault(day[:7], []).append((day, name, rel))
+    projects = sorted(glob.glob(os.path.join(CHATS, '_projects', '*.md')))
+    total = sum(len(v) for v in index.values())
+    idx = ['# Claude.ai chats', '', 'Updated %s. %d chats%s.' % (
+        datetime.date.today().isoformat(), total,
+        ', %d projects in `_projects/`' % len(projects) if projects else ''), '']
     for month in sorted(index, reverse=True):
         idx += ['## ' + month, '']
         for day, name, rel in sorted(index[month], reverse=True):
             idx.append('- %s — [%s](%s)' % (day, name.replace('[', '(').replace(']', ')'), rel.replace(' ', '%20')))
         idx.append('')
+    os.makedirs(CHATS, exist_ok=True)
     with open(os.path.join(CHATS, 'INDEX.md'), 'w') as f:
         f.write('\n'.join(idx))
-    print('Wrote %d chats + %d projects to %s (index: INDEX.md)' % (len(convs), len(projects), CHATS))
+    return total
+
+
+# --------------------------------------------------------------------- run
+def load_state():
+    try:
+        return load(STATE)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(st):
+    os.makedirs(ARCHIVE, exist_ok=True)
+    with open(STATE, 'w') as f:
+        json.dump(st, f, indent=2)
+
+
+def recent_backup(hours=24):
+    for b in glob.glob(os.path.join(BACKUPS, '*')) + glob.glob(os.path.join(HOME, 'claude-migration-backup-*')):
+        if time.time() - os.path.getmtime(b) < hours * 3600:
+            return b
+    return None
+
+
+def official_exports():
+    """Official claude.ai export ZIPs in ~/Downloads (they contain conversations.json)."""
+    out = []
+    for z in glob.glob(os.path.join(HOME, 'Downloads', '*.zip')):
+        try:
+            if any(n.endswith('conversations.json') for n in zipfile.ZipFile(z).namelist()):
+                out.append(z)
+        except (zipfile.BadZipFile, OSError):
+            pass
+    return sorted(out, key=os.path.getmtime)
+
+
+def cmd_run(a):
+    st = load_state()
+    mode = 'APPLYING' if a.apply else 'DRY RUN — nothing is written'
+    print('== carry-over run (%s)\n' % mode)
+
+    # 1. backup
+    b = recent_backup()
+    print('1. Backup: ' + ('recent backup exists (%s) — skip' % b if b else 'will back up ~/.claude and the desktop session list to ' + BACKUPS))
+    if a.apply and not b:
+        dest = os.path.join(BACKUPS, datetime.datetime.now().strftime('%Y-%m-%d-%H%M'))
+        os.makedirs(dest)
+        subprocess.run(['tar', '-czf', os.path.join(dest, 'dot-claude.tgz'), '-C', HOME, '.claude'], check=True)
+        subprocess.run(['tar', '-czf', os.path.join(dest, 'desktop-sessions.tgz'), '-C',
+                        os.path.dirname(SESSIONS), os.path.basename(SESSIONS)], check=True)
+        print('   backed up to ' + dest)
+
+    # 2. snapshot
+    print('2. Snapshot: session list -> ' + os.path.join(MIGRATION, 'sessions.md'))
+    if a.apply:
+        cmd_snapshot(a)
+
+    # 3. refresh chats with claudex (reads the Desktop app's current login)
+    claudex = shutil.which('claudex')
+    if a.no_claudex or not claudex:
+        print('3. Refresh chats (claudex): ' + ('skipped (--no-claudex)' if claudex else 'claudex not installed — skip'))
+    else:
+        print('3. Refresh chats (claudex): export this account\'s claude.ai chats to ' + RAW +
+              ' (macOS may ask for Keychain access once)')
+        if a.apply:
+            r = subprocess.run([claudex, 'export', '--all', '--format', 'all', '--out', RAW])
+            if r.returncode == 0:
+                st['claudex_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+            else:
+                print('   claudex failed (exit %d) — continuing with what is already on disk' % r.returncode)
+
+    # 4. import chats
+    imported = set(st.get('imported_zips', []))
+    zips = [z for z in official_exports() if z not in imported]
+    have_raw = os.path.isdir(RAW) and glob.glob(os.path.join(RAW, '*.json'))
+    print('4. Import chats -> %s: %s%s' % (CHATS, 'claudex output' if (have_raw or (claudex and not a.no_claudex)) else 'no claudex output',
+          '; official export ZIP(s): ' + ', '.join(os.path.basename(z) for z in zips) if zips else '; no new official export ZIP in ~/Downloads'))
+    if a.apply:
+        class I: apply = True
+        if glob.glob(os.path.join(RAW, '*.json')):
+            I.source = RAW
+            cmd_import(I)
+        for z in zips:
+            I.source = z
+            cmd_import(I)
+            imported.add(z)
+        st['imported_zips'] = sorted(imported)
+
+    # 5. restore sessions into this account
+    print('5. Restore Code sessions:')
+    if a.target_session:
+        class R: target_session = a.target_session; source = None
+        R.include_archived = a.include_archived
+        R.apply = a.apply
+        try:
+            cmd_restore(R)
+        except SystemExit as e:  # e.g. only one account folder yet
+            print('   ' + str(e))
+    else:
+        print('   skipped (no --target-session)')
+
+    if a.apply:
+        st['last_run'] = datetime.datetime.now().isoformat(timespec='seconds')
+        save_state(st)
+        print('\nDone. If sessions were restored: quit Claude (Cmd+Q) and reopen it.')
+    else:
+        print('\nDry run only. Re-run with --apply to do all of the above.')
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
+    run = sub.add_parser('run')
+    run.add_argument('--target-session', help='local_<id> of the session running this (its account is the target)')
+    run.add_argument('--include-archived', action='store_true')
+    run.add_argument('--no-claudex', action='store_true', help='do not refresh chats with claudex')
+    run.add_argument('--apply', action='store_true')
     sub.add_parser('snapshot')
     r = sub.add_parser('restore')
     r.add_argument('--target-session', required=True, help='local_<id> of a session in the NEW account')
@@ -278,7 +431,7 @@ def main():
     i.add_argument('source', help='the export .zip or its unzipped folder')
     i.add_argument('--apply', action='store_true')
     a = p.parse_args()
-    {'snapshot': cmd_snapshot, 'restore': cmd_restore, 'import-chats': cmd_import}[a.cmd](a)
+    {'run': cmd_run, 'snapshot': cmd_snapshot, 'restore': cmd_restore, 'import-chats': cmd_import}[a.cmd](a)
 
 
 if __name__ == '__main__':
