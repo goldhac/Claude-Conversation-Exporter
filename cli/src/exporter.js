@@ -105,7 +105,10 @@ async function exportConversations(client, convos, opts, cfg) {
 
   if (zip) {
     zip.file('export_summary.json', JSON.stringify(summary, null, 2));
-    const zipPath = path.join(outDir, 'claude-conversations-' + new Date().toISOString().slice(0, 10) + '.zip');
+    const zipBase = opts.zipLabel
+      ? convert.sanitizeFilename(opts.zipLabel)
+      : 'claude-conversations-' + new Date().toISOString().slice(0, 10);
+    const zipPath = path.join(outDir, zipBase + '.zip');
     const buf = await zip.generateAsync({
       type: 'nodebuffer',
       compression: 'DEFLATE',

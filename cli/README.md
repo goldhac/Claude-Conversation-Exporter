@@ -56,9 +56,14 @@ so it won't ask again.
 Check that the session can be read and (online) accepted by the API. `--offline`
 only decrypts the local session and skips the network.
 
-### `list [--json] [--since <date>] [--limit <n>]`
+### `list [--json] [--project <name>] [--since <date>] [--limit <n>]`
 List conversations (most-recently-updated first). `--json` prints the raw API
 objects to stdout; the human table prints `date  id  model  title`.
+`--project` filters to a single project (by name or uuid).
+
+### `projects [--json]`
+List your Claude Projects, each with its conversation count — e.g.
+`28  019e40cf-…  This Project is for Chineme Activities`.
 
 ### `export [conversationId] [options]`
 Export one conversation by id, or `--all` of them.
@@ -66,6 +71,7 @@ Export one conversation by id, or `--all` of them.
 | Option | Description |
 | --- | --- |
 | `--all` | Export every conversation |
+| `--project <name>` | Export every conversation in one project (name or uuid) → `./claudex/<project>/` |
 | `--format json\|markdown\|text\|all` | Output format(s). Default `markdown` |
 | `--out <dir>` | Output directory. Default `./claudex` |
 | `--zip` | Bundle everything into one `.zip` (+ `export_summary.json`) |
@@ -99,6 +105,10 @@ claudex export --all --format json --limit 20
 
 # Only conversations touched since a date
 claudex export --all --since 2026-01-01 --zip
+
+# See your projects, then export every chat in one (into ./claudex/<project>/)
+claudex projects
+claudex export --project "Research and Professional Practice" --zip
 
 # Manual session (any OS): copy sessionKey from DevTools → Application → Cookies
 claudex export --all --session-key "sk-ant-sid02-…" --org "<org-uuid>"

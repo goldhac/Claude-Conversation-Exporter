@@ -20,11 +20,11 @@ process.stdout.on('error', (err) => {
 const { program } = require('commander');
 const pkg = require('../package.json');
 const { logger } = require('../src/logger');
-const { ExporterError } = require('../src/errors');
 
 const authCmd = require('../src/commands/auth');
 const listCmd = require('../src/commands/list');
 const exportCmd = require('../src/commands/export');
+const projectsCmd = require('../src/commands/projects');
 
 // Wrap command actions so typed errors print a clean message (no stack).
 function wrap(fn) {
@@ -32,11 +32,8 @@ function wrap(fn) {
     try {
       await fn(...args);
     } catch (err) {
-      if (err instanceof ExporterError) {
-        logger.error(err.message);
-      } else {
-        logger.error(err && err.stack ? err.stack : String(err));
-      }
+      logger.error(err && err.message ? err.message : String(err));
+      if (process.env.CLAUDEX_DEBUG && err && err.stack) console.error(err.stack);
       process.exitCode = 1;
     }
   };
@@ -63,14 +60,21 @@ withAuthOpts(program.command('auth'))
 withAuthOpts(program.command('list'))
   .description('list your conversations')
   .option('--json', 'output raw JSON to stdout')
+  .option('--project <name-or-uuid>', 'only conversations in this project')
   .option('--since <date>', 'only conversations updated on/after this date (e.g. 2025-01-01)')
   .option('--limit <n>', 'show at most N (most recently updated) conversations')
   .action(wrap(listCmd));
+
+withAuthOpts(program.command('projects'))
+  .description('list your projects (with conversation counts)')
+  .option('--json', 'output raw JSON to stdout')
+  .action(wrap(projectsCmd));
 
 withAuthOpts(program.command('export'))
   .argument('[conversationId]', 'conversation id to export (omit and use --all for everything)')
   .description('export one conversation or --all of them')
   .option('--all', 'export every conversation')
+  .option('--project <name-or-uuid>', 'export every conversation in this project')
   .option('--format <fmt>', 'json | markdown | text | all', 'markdown')
   .option('--out <dir>', 'output directory (default ./claudex)')
   .option('--zip', 'bundle output into a single .zip')

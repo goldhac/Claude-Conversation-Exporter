@@ -3,6 +3,7 @@ const { resolveSession } = require('../session');
 const { resolveConfig } = require('../config');
 const { ClaudeApiClient } = require('../api');
 const { logger } = require('../logger');
+const { resolveProject } = require('../projects');
 const convert = require('../convert');
 
 function applySince(list, since) {
@@ -18,6 +19,11 @@ module.exports = async function list(opts) {
   const client = new ClaudeApiClient({ cookies: session.cookies, userAgent: cfg.userAgent, org: session.org });
 
   let convos = await client.listConversations();
+  if (opts.project) {
+    const proj = resolveProject(await client.listProjects(), opts.project);
+    convos = convos.filter((c) => c.project_uuid === proj.uuid);
+    logger.info('project: ' + (proj.name || '(unnamed)') + ' (' + proj.uuid + ')');
+  }
   convos = applySince(convos, opts.since);
   convos.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   if (opts.limit) convos = convos.slice(0, Math.max(0, Number(opts.limit) || 0));

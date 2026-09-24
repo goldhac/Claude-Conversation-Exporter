@@ -121,6 +121,13 @@ class ClaudeApiClient {
       '?tree=True&rendering_mode=messages&render_all_tools=true'
     );
   }
+
+  // List the org's projects.
+  async listProjects() {
+    const org = await this.resolveOrg();
+    const projects = await this.request('/organizations/' + org + '/projects');
+    return Array.isArray(projects) ? projects : [];
+  }
 }
 
 module.exports = { ClaudeApiClient };
