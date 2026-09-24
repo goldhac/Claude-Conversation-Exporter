@@ -217,10 +217,13 @@ def cmd_import(a):
             print('  %s  %s' % ((c.get('created_at') or '')[:10], c.get('name') or 'Untitled'))
         print('  …\nNothing written. Re-run with --apply.')
         return
-    index = {}
+    index, written = {}, {}
     for c in convs:
         day = (c.get('created_at') or '0000-00-00')[:10]
         rel = os.path.join(day[:7], '%s %s.md' % (day, slug(c.get('name'))))
+        if rel in written and written[rel] != c.get('uuid'):  # same title, same day
+            rel = rel[:-3] + ' ' + (c.get('uuid') or '')[:8] + '.md'
+        written[rel] = c.get('uuid')
         path = os.path.join(CHATS, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         body = ['---', 'type: claude-chat', 'uuid: ' + c.get('uuid', ''),
@@ -248,8 +251,10 @@ def cmd_import(a):
             lines += ['## 📄 ' + (d.get('filename') or 'doc'), '', d.get('content') or '', '']
         with open(os.path.join(pdir, slug(p.get('name')) + '.md'), 'w') as f:
             f.write('\n'.join(lines))
-    idx = ['# Claude.ai chats', '', 'Imported %s from the official export. %d chats, %d projects (see `_projects/`).' %
-           (datetime.date.today().isoformat(), len(convs), len(projects)), '']
+    src = 'claudex' if any(c.get('_rendered_md') is not None or 'conversations.json' not in str(a.source) for c in convs[:1]) and not projects else 'the official export'
+    idx = ['# Claude.ai chats', '', 'Imported %s from %s. %d chats, %d projects%s.' %
+           (datetime.date.today().isoformat(), src, len(convs), len(projects),
+            ' (see `_projects/`)' if projects else ''), '']
     for month in sorted(index, reverse=True):
         idx += ['## ' + month, '']
         for day, name, rel in sorted(index[month], reverse=True):
