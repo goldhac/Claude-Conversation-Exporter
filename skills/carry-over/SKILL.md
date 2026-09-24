@@ -46,7 +46,7 @@ transcript under any account: `cd <folder> && claude --resume <cliSessionId>` (t
 Two sources work, and can be combined (the same chat is simply overwritten):
 - **claudex** (instant, full fidelity: thinking, tools, artifacts, all branches). The user must run it
   **before** signing out of the old account, since it reads the Desktop app's current login:
-  `claudex export --all --format all --out ~/Documents/Vault/Claude-Chats-raw`
+  `claudex export --all --format all --out ~/Documents/Archive/claude-chats-raw`
   Never run claudex yourself; it reads the user's login from the Keychain — give the user the command.
 - **Official export** — claude.ai → Settings → Privacy → Export data (arrives by email as a ZIP; includes Projects).
 
