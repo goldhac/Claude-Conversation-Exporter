@@ -11,14 +11,19 @@ before switching, after switching, and again any time.
 
 | Step | What it does | Skips when |
 |---|---|---|
-| 1. Backup | `~/.claude` + the desktop session list → `~/ClaudeArchive/backups/<date>/` | a backup exists from the last 24 h |
-| 2. Snapshot | every session, folder and transcript status → `~/Documents/Vault/Claude-Migration/sessions.md` | — |
+| 1. Backup | `~/.claude`, the desktop session list, and MCP configs (`~/.claude.json`, `claude_desktop_config.json`) → `~/ClaudeArchive/backups/<date>/` | a backup exists from the last 24 h |
+| 2. Snapshot | every session, folder and transcript status, plus a **connector checklist** → `~/Documents/Vault/Claude-Migration/sessions.md` | — |
 | 3. Refresh chats | `claudex export` of the **currently signed-in** account's claude.ai chats → `~/ClaudeArchive/chats-raw/` | claudex not installed, or `--no-claudex` |
 | 4. Import chats | claudex output + any **official export ZIP in ~/Downloads** → Markdown notes in `~/ClaudeArchive/chats/` with a cumulative `INDEX.md` | ZIPs already imported (tracked in `~/ClaudeArchive/state.json`) |
 | 5. Restore sessions | copies Code sessions from other account folders into this account's folder (strips old-account connector settings, points them at their current folders) | sessions already present, or with no transcript left |
 
 Chats and backups live in `~/ClaudeArchive/`, outside `~/Documents`, because Documents is often
 cloud-synced and these contain private data. Override with `CARRY_OVER_ARCHIVE` / `CARRY_OVER_VAULT`.
+
+## Connectors
+
+- **MCP servers configured on the Mac** (Claude Code `~/.claude.json`, Desktop `claude_desktop_config.json`) are not tied to the account — they keep working after switching, and step 1 backs them up.
+- **claude.ai account connectors** (Gmail, Drive, Figma, …) are OAuth sign-ins tied to the old account. Never try to copy their tokens. `run` lists them at the end and the snapshot has a checklist; the user reconnects each in claude.ai → Settings → Connectors.
 
 ## When the user runs /carry-over
 
@@ -29,7 +34,7 @@ cloud-synced and these contain private data. Override with `CARRY_OVER_ARCHIVE` 
    ("Claude Safe Storage") which they should Allow, and that it exports whichever account is signed in right now.
 4. On yes: the same command with `--apply` (run it in the background — claudex over hundreds of chats takes minutes).
    Add `--include-archived` only if they asked for archived sessions; `--no-claudex` if they declined the Keychain step.
-5. Report: backup location, chats imported (total in `INDEX.md`), sessions restored. If any were restored,
+5. Report: backup location, chats imported (total in `INDEX.md`), sessions restored, and the connectors to reconnect. If any were restored,
    tell them to quit Claude completely (Cmd+Q) and reopen it; opening a restored session continues it.
 
 If a restored session will not open, the CLI resumes it from the local transcript under any account:

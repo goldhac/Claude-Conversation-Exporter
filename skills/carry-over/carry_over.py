@@ -105,6 +105,12 @@ def cmd_snapshot(_):
             ms_date(ts), (s.get('title') or '(untitled)').replace('|', '/'),
             os.path.realpath(s.get('cwd') or ''), 'yes' if s.get('isArchived') else '',
             'ok' if has_transcript(s) else 'MISSING'))
+    account, local = connector_inventory()
+    lines += ['', '## Connectors', '',
+              '**Reconnect in the new account** (claude.ai → Settings → Connectors) — these are sign-ins tied to the old account and do not transfer:', '']
+    lines += ['- [ ] ' + n for n in account] or ['- (none found)']
+    lines += ['', '**Carry over automatically** (configured on this Mac, not in the account):', '']
+    lines += ['- ' + n for n in local] or ['- (none found)']
     out = os.path.join(MIGRATION, 'sessions.md')
     with open(out, 'w') as f:
         f.write('\n'.join(lines) + '\n')
@@ -307,6 +313,43 @@ def rebuild_index():
     return total
 
 
+# ------------------------------------------------------------- connectors
+DESKTOP_DIR = os.path.dirname(SESSIONS)
+MCP_CONFIGS = [os.path.join(HOME, '.claude.json'),                      # Claude Code MCP servers + per-project config
+               os.path.join(DESKTOP_DIR, 'claude_desktop_config.json'),  # Claude Desktop app MCP servers
+               os.path.join(DESKTOP_DIR, 'mcp-user-tool-toggles.json')]
+
+
+def backup_mcp_configs(dest):
+    for f in MCP_CONFIGS:
+        if os.path.exists(f):
+            shutil.copy2(f, os.path.join(dest, os.path.basename(f).lstrip('.')))
+
+
+def connector_inventory():
+    """(account connectors, local MCP servers). Account connectors are OAuth sign-ins
+    tied to the claude.ai account — they must be reconnected, never copied."""
+    account = set()
+    for d, files in account_dirs():
+        for f in files:
+            for srv in load(f).get('remoteMcpServersConfig') or []:
+                if srv.get('name'):
+                    account.add(srv['name'])
+    local = []
+    try:
+        c = load(MCP_CONFIGS[0])
+        local += ['%s (Claude Code)' % n for n in sorted(c.get('mcpServers') or {})]
+        for proj, v in sorted((c.get('projects') or {}).items()):
+            local += ['%s (Claude Code, %s)' % (n, os.path.basename(proj)) for n in sorted(v.get('mcpServers') or {})]
+    except (OSError, ValueError):
+        pass
+    try:
+        local += ['%s (Desktop app)' % n for n in sorted(load(MCP_CONFIGS[1]).get('mcpServers') or {})]
+    except (OSError, ValueError):
+        pass
+    return sorted(account, key=str.lower), list(dict.fromkeys(local))
+
+
 # --------------------------------------------------------------------- run
 def load_state():
     try:
@@ -354,6 +397,7 @@ def cmd_run(a):
         subprocess.run(['tar', '-czf', os.path.join(dest, 'dot-claude.tgz'), '-C', HOME, '.claude'], check=True)
         subprocess.run(['tar', '-czf', os.path.join(dest, 'desktop-sessions.tgz'), '-C',
                         os.path.dirname(SESSIONS), os.path.basename(SESSIONS)], check=True)
+        backup_mcp_configs(dest)
         print('   backed up to ' + dest)
 
     # 2. snapshot
@@ -408,6 +452,11 @@ def cmd_run(a):
     if a.apply:
         st['last_run'] = datetime.datetime.now().isoformat(timespec='seconds')
         save_state(st)
+        account, _ = connector_inventory()
+        if account:
+            print('\nReconnect these account connectors in the new account (claude.ai → Settings → Connectors):')
+            print('  ' + ', '.join(account))
+            print('  Checklist: ' + os.path.join(MIGRATION, 'sessions.md'))
         print('\nDone. If sessions were restored: quit Claude (Cmd+Q) and reopen it.')
     else:
         print('\nDry run only. Re-run with --apply to do all of the above.')
